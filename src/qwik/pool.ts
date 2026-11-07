@@ -23,11 +23,39 @@ import { makeSigner } from "./kit.js";
 import type { TxRequest, TxOutcome } from "../core/signer.js";
 import { ownerOf } from "./token.js";
 
-/** Global code hash of the stock CLMM v5 pool wasm (deployed once, ~10N/100KB burn amortized). */
+/** Global code hash of the stock CLMM v5 pool wasm — NOT registered yet
+ * (verified live: NO_GLOBAL_CONTRACT_CODE). Registering would burn ~16 N
+ * (159 KB); until someone funds that, new pools inline-deploy the embedded
+ * code (~1.6 N storage on the pool account). */
 export const POOL_CODE_HASH = "5oPU5mvJJS8Hjf5bP4zqg7VqrfobrCpDFiMWt89GJjcs";
 
 const ACCOUNT_RE = /^[a-z0-9-]{1,32}$/;
-const DEFAULT_POOL_NEAR = "300000000000000000000000";
+const DEFAULT_POOL_NEAR = "2000000000000000000000000";
+
+type CodeMode = { mode: "global"; hash: string } | { mode: "inline" };
+
+/** Serialization law: bytes ride codeB64 — Uint8Array dies over JSON. */
+function codeParams(bytes: Uint8Array): { code: Uint8Array; codeB64: string } {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return { code: bytes, codeB64: btoa(bin) };
+}
+
+/**
+ * Is the stock pool code registered globally? Hash (global mode) or null
+ * (inline mode). Never deploys from the create path — the global burn is
+ * ~16 N and belongs to an explicit, funded decision.
+ */
+async function poolCodeMode(cfg: KitJson): Promise<CodeMode> {
+  const { RpcClient } = await import("../core/rpc.js");
+  const rpc = new RpcClient(cfg.rpcEndpoint ?? "https://rpc.testnet.fastnear.com");
+  const look = await rpc.query("view_global_contract_code", { code_hash: POOL_CODE_HASH });
+  if (look.ok) return { mode: "global", hash: POOL_CODE_HASH };
+  if (!look.error?.includes("NO_GLOBAL_CONTRACT_CODE")) {
+    throw new Error("pool-create: global-code lookup failed — refusing to guess: " + look.error?.slice(0, 120));
+  }
+  return { mode: "inline" };
+}
 
 export type PoolSpec = {
   name: string;
@@ -70,16 +98,18 @@ export async function kitCreatePool(cfg: KitJson, spec: PoolSpec): Promise<PoolC
   const owner = await ownerOf(cfg);
   const accountId = `${name}.${owner}`;
   const signer = makeSigner(cfg);
+  const mode = await poolCodeMode(cfg);
 
-  const birth: TxRequest = {
-    receiverId: accountId,
-    actions: [
-      { type: "CreateAccount" },
-      { type: "UseGlobalContract", params: { contractIdentifier: { codeHash: POOL_CODE_HASH } } },
-      { type: "Transfer", params: { deposit: spec.initialNear ?? DEFAULT_POOL_NEAR } },
-    ],
-  };
-  const birthOut = await signer.sendTransactions([birth]);
+  // birth tx — create + attach code + fund storage (faucet pattern, one tx)
+  const birthActions: TxRequest["actions"] = [{ type: "CreateAccount" }];
+  if (mode.mode === "global") {
+    birthActions.push({ type: "UseGlobalContract", params: { contractIdentifier: { codeHash: mode.hash } } });
+  } else {
+    const { poolWasmBytes } = await import("../core/pool-code.js");
+    birthActions.push({ type: "DeployContract", params: codeParams(poolWasmBytes()) });
+  }
+  birthActions.push({ type: "Transfer", params: { deposit: spec.initialNear ?? DEFAULT_POOL_NEAR } });
+  const birthOut = await signer.sendTransactions([{ receiverId: accountId, actions: birthActions }]);
 
   const initTx: TxRequest = {
     receiverId: accountId,
