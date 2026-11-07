@@ -51,7 +51,8 @@ export class ClmmV5Adapter implements ProtocolAdapter {
         seen.add(t.addr);
         let meta: { decimals?: number };
         try {
-          meta = (await this.rpc.view(t.addr, "ft_metadata", {})) as { decimals?: number };
+          const raw = await this.rpc.view(t.addr, "ft_metadata", {});
+          meta = JSON.parse(raw) as { decimals?: number };
         } catch (e) {
           throw new Error(
             `clmm-v5: ft_metadata failed for ${t.addr} (${String(e).slice(0, 80)}) — fix the address; decimals cannot be trusted blind`,
