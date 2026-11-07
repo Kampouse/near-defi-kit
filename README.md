@@ -63,9 +63,22 @@ export const SwapCard = component$(() => {
       ? `done: ${res.txHashes.join(", ")}` : "leg rejected by pool (refunded)";
   });
 
-  return (<div>…</div>);
+  return (
+    <div>
+      <input
+        placeholder="0.0"
+        onInput$={(_, el) => quote(el.value)}
+      />
+      <button onClick$={swap} disabled={!out.value}>
+        {out.value ? `get ~${out.value} wNEAR` : "type an amount"}
+      </button>
+      <p>{status.value}</p>
+    </div>
+  );
 });
 ```
+
+The input feeds `quote()`; the button only enables once a quote exists (so `minOut` is never empty); `swap()` re-quotes nothing — it reuses the last quoted output as the on-chain floor.
 
 That's the whole integration: config JSON + two hoisted functions. `kitQuote`/`kitSwap` build the signer internally, register the CLMM adapter from `clmmPools`, enforce min-out on-chain, and parse the receipt chains for you.
 
