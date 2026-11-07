@@ -101,8 +101,9 @@ export class ClmmV5Adapter implements ProtocolAdapter {
       })
     ).replace(/"/g, "");
     const m = /^q:(\d+):rm:(\d+)$/.exec(raw);
-    if (!m) throw new Error(`chain quote unparsable: ${raw.slice(0, 80)}`);
-    return { out: BigInt(m[1]), fee };
+    const outRaw = m?.[1];
+    if (outRaw === undefined) throw new Error(`chain quote unparsable: ${raw.slice(0, 80)}`);
+    return { out: BigInt(outRaw), fee };
   }
 
   async getQuote(intent: SwapIntent): Promise<Quote | null> {
@@ -133,8 +134,13 @@ export class ClmmV5Adapter implements ProtocolAdapter {
   /** escrow-custody sanity: escrow slices must equal the pool's token balances. */
   async custodyCheck(poolId: string): Promise<{ x: boolean; y: boolean; escx: bigint; escy: bigint }> {
     const raw = await this.rpc.view(poolId, "get_state", {});
-    const escx = BigInt(/ESCX:([0-9]+)/.exec(raw)![1]);
-    const escy = BigInt(/ESCY:([0-9]+)/.exec(raw)![1]);
+    const group = (k: string): string => {
+      const v = new RegExp(k + ":([0-9]+)").exec(raw)?.[1];
+      if (v === undefined) throw new Error(`get_state missing ${k}`);
+      return v;
+    };
+    const escx = BigInt(group("ESCX"));
+    const escy = BigInt(group("ESCY"));
     const cfg = this.cfgs.find((c) => c.id === poolId);
     if (!cfg) throw new Error(`pool ${poolId} not in adapter config`);
     const [bx, by] = await Promise.all([

@@ -77,8 +77,9 @@ export class NearKitQwikSigner implements Signer {
 
   async sendTransaction(tx: TxRequest): Promise<TxOutcome> {
     const lib = await this.lib();
-    if (tx.actions.length === 1 && tx.actions[0].type === "FunctionCall") {
-      const p = tx.actions[0].params;
+    const single = tx.actions[0];
+    if (tx.actions.length === 1 && single?.type === "FunctionCall") {
+      const p = single.params;
       const outcome = (await lib.call(this.cfg, tx.receiverId, p.methodName, p.args,
         { attachedDeposit: p.deposit, gas: tgasOf(p.gas) })) as TxOutcome;
       // near-kit returns a FinalExecutionOutcome — transaction_outcome.id +
@@ -96,8 +97,9 @@ export class NearKitQwikSigner implements Signer {
     for (const tx of txs) groups.set(tx.receiverId, [...(groups.get(tx.receiverId) ?? []), tx]);
     const outcomes: TxOutcome[] = [];
     for (const [receiverId, group] of groups) {
-      if (group.length === 1) {
-        outcomes.push(await this.sendTransaction(group[0]));
+      const g0 = group[0];
+      if (g0 !== undefined && group.length === 1) {
+        outcomes.push(await this.sendTransaction(g0));
         continue;
       }
       // same receiver → ONE atomic batch (near.tx is single-receiver)

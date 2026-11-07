@@ -94,7 +94,7 @@ export function scanReceipts(outcome: TxOutcome, re: RegExp): string | null {
     try {
       const decoded = b64ToUtf8(sv);
       const m = re.exec(decoded.trim());
-      if (m) return m[1];
+      if (m) return m[1] ?? null;
     } catch {
       // non-utf8 success value — skip
     }

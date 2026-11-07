@@ -53,7 +53,10 @@ export function makeSigner(cfg: KitJson): NearConnectSigner | NearKitQwikSigner 
   if (cfg.signer === "near-kit-qwik") {
     return new NearKitQwikSigner({ cfg: { network: cfg.network } });
   }
-  return new NearConnectSigner({ network: cfg.network, agentWallet: cfg.agentWallet });
+  return new NearConnectSigner({
+    network: cfg.network,
+    ...(cfg.agentWallet !== undefined ? { agentWallet: cfg.agentWallet } : {}),
+  });
 }
 
 function makeKit(cfg: KitJson): DefiKit {
@@ -110,7 +113,7 @@ function toLegs(used: Array<string | null>): SwapLeg[] {
 
 type InFlightSwap = {
   intent: SwapIntent;
-  adapterId?: string;
+  adapterId?: string | undefined;
   quote?: Quote;
   txHashes?: string[];
   startedAt: number;

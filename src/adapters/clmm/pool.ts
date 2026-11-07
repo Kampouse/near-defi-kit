@@ -391,7 +391,9 @@ export class Pool {
   quoteSwap(amt: string, dir: "x" | "y"): { out: string; refunded: string; kept: string; fee: string } {
     const fee = BigInt(this.shr8(amt));
     const q = this.quote(dir === "x" ? (BigInt(amt) - fee).toString() : "-" + (BigInt(amt) - fee).toString());
-    const [out, rm] = q.slice(2).split(":rm:");
+    const parts = q.slice(2).split(":rm:");
+    const [out, rm] = parts;
+    if (out === undefined || rm === undefined) throw new Error(`quote wire unparsable: ${q.slice(0, 40)}`);
     const kept = BigInt(amt) - BigInt(rm);
     return { out, refunded: rm, kept: kept.toString(), fee: fee.toString() };
   }
@@ -416,7 +418,11 @@ export class Pool {
     const ticks: { tick: number; lq: string }[] = [];
     const re = /(-?\d+)\|(\d+)/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(s)) !== null) ticks.push({ tick: Number(m[1]), lq: m[2] });
+    while ((m = re.exec(s)) !== null) {
+      const tick = m[1], lq = m[2];
+      if (tick === undefined || lq === undefined) continue;
+      ticks.push({ tick: Number(tick), lq });
+    }
     // LAST embeds colons ("swap-out:<out>:rem:<rem>") — extract it first.
     // Scalar fields are extracted by DIRECT FIELD REGEX, not positional
     // K:V pairing: the wire emits "LQ:<i>|<v>" as single colon-free chunks,
@@ -424,10 +430,12 @@ export class Pool {
     // found by the defi-kit smoke test against pool7 — the frontend copy
     // carried the same latent bug, masked by || defaults).
     const lastM = /LAST:(swap-out:\d+:rem:\d+|0)(:|$)/.exec(s);
-    const last = lastM ? lastM[1] : "0";
+    const last = lastM?.[1] ?? "0";
     const field = (k: string): string => {
       const m = new RegExp("(?:^|:)" + k + ":([^:]+)(?::|$)").exec(s);
-      return m ? m[1] : "";
+      const v = m?.[1];
+      if (v === undefined) throw new Error(`get_state missing field ${k}`);
+      return v;
     };
     const g = (k: string): string => field(k);
     const imin = Number(g("IMIN")), imax = Number(g("IMAX"));

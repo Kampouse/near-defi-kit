@@ -133,9 +133,10 @@ export class NearConnectSigner implements Signer {
 
   async sendTransactions(txs: TxRequest[]): Promise<TxOutcome[]> {
     const wallet = await this.wallet();
+    const first = txs[0];
     const outcomes =
-      txs.length === 1
-        ? [await wallet.signAndSendTransaction(txs[0])]
+      first !== undefined && txs.length === 1
+        ? [await wallet.signAndSendTransaction(first)]
         : await wallet.signAndSendTransactions({ transactions: txs });
     this.stashHashes(outcomes);
     return outcomes;

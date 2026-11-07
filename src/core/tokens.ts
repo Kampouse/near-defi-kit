@@ -23,12 +23,12 @@ export async function tokenMetadata(rpc: RpcClient, token: string): Promise<Toke
       token, "ft_metadata", {},
     );
     return {
-      symbol: meta.symbol ?? token.split(".")[0].toUpperCase(),
+      symbol: meta.symbol ?? (token.split(".")[0] ?? token).toUpperCase(),
       decimals: meta.decimals ?? 24,
-      name: meta.name,
+      ...(meta.name !== undefined ? { name: meta.name } : {}),
     };
   } catch {
-    return { symbol: token.split(".")[0].toUpperCase(), decimals: 24 };
+    return { symbol: (token.split(".")[0] ?? token).toUpperCase(), decimals: 24 };
   }
 }
 
