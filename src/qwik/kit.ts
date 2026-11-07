@@ -9,6 +9,13 @@
 //   const q = useSignal<Quote | null>(null);
 //   const doQuote = $((amount: string) => { q.value = await kitQuote(cfg, intent); });
 // Handlers import these hoisted functions; only cfg (JSON) is captured.
+//
+// Reload law: near-connect (and sandbox/daemon wallets) RELOAD the page
+// after signing — kitSwap's in-page promise never resolves post-tx. So
+// kitSwap persists {intent, txHashes} to sessionStorage BEFORE awaiting,
+// and kitSwapResult() recovers the result after the reload. The swap
+// button flow is: call kitSwap (fire it), on next mount call
+// kitSwapResult() and clear it.
 
 import { RpcClient } from "../core/rpc.js";
 import { DefiKit } from "../core/adapter.js";
@@ -17,6 +24,7 @@ export type { Quote, SwapIntent } from "../core/adapter.js";
 import { ClmmV5Adapter } from "../adapters/clmm/index.js";
 import type { ClmmPoolCfg } from "../adapters/clmm/index.js";
 import { NearConnectSigner } from "../wallet/near-connect.js";
+import { NearKitQwikSigner } from "../wallet/near-kit-qwik-signer.js";
 import { parseUsed } from "../core/signer.js";
 
 /** Everything the kit needs, as plain JSON — the only thing you keep in signals/stores. */
@@ -26,34 +34,56 @@ export type KitJson = {
   clmmPools?: ClmmPoolCfg[];
   /** register the loopback agent wallet (desktop only) */
   agentWallet?: boolean;
+  /**
+   * Which wallet layer signs. "near-connect" (default) = @fastnear/
+   * near-connect, kit owns the picker. "near-kit-qwik" = sign through an
+   * existing near-kit-qwik session (app owns connect/disconnect; the kit
+   * never opens a second connector — one wallet library per app).
+   */
+  signer?: "near-connect" | "near-kit-qwik";
 };
+
+const SWAP_STORE_KEY = "defi-kit:swap-in-flight";
 
 function buildRpc(cfg: KitJson): RpcClient {
   return cfg.rpcEndpoint ? new RpcClient(cfg.rpcEndpoint) : RpcClient.forNetwork(cfg.network);
 }
 
+function makeSigner(cfg: KitJson): NearConnectSigner | NearKitQwikSigner {
+  if (cfg.signer === "near-kit-qwik") {
+    return new NearKitQwikSigner({ cfg: { network: cfg.network } });
+  }
+  return new NearConnectSigner({ network: cfg.network, agentWallet: cfg.agentWallet });
+}
+
+function makeKit(cfg: KitJson): DefiKit {
+  const rpc = buildRpc(cfg);
+  const kit = new DefiKit({ rpc, signer: makeSigner(cfg) });
+  if (cfg.clmmPools) kit.register(new ClmmV5Adapter(rpc, cfg.clmmPools));
+  return kit;
+}
+
 /** Best quote across the config's adapters. Null = no route. */
 export async function kitQuote(cfg: KitJson, intent: SwapIntent): Promise<Quote | null> {
-  const kit = new DefiKit({ rpc: buildRpc(cfg), signer: new NearConnectSigner({ network: cfg.network, agentWallet: cfg.agentWallet }) });
-  if (cfg.clmmPools) kit.register(new ClmmV5Adapter(kit.rpc, cfg.clmmPools));
+  const kit = makeKit(cfg);
   const best = await kit.bestQuote(intent);
   return best ? best.quote : null;
 }
 
 /** Connect the wallet (opens the picker). Returns the accountId — store THAT, not the wallet. */
 export async function kitConnect(cfg: KitJson): Promise<string | null> {
-  const signer = new NearConnectSigner({ network: cfg.network, agentWallet: cfg.agentWallet });
+  const signer = makeSigner(cfg);
   return signer.connect();
 }
 
 /** Restore accountId from a live session (call in useVisibleTask$ on load). */
 export async function kitAccountId(cfg: KitJson): Promise<string | null> {
-  const signer = new NearConnectSigner({ network: cfg.network, agentWallet: cfg.agentWallet });
+  const signer = makeSigner(cfg);
   return signer.accountId();
 }
 
 export async function kitDisconnect(cfg: KitJson): Promise<void> {
-  const signer = new NearConnectSigner({ network: cfg.network, agentWallet: cfg.agentWallet });
+  const signer = makeSigner(cfg);
   await signer.disconnect();
 }
 
@@ -64,21 +94,74 @@ export type SwapResult = {
   used: Array<string | null>;
 };
 
-/** quote → min-out check → sign + send. THE swap path. Throws before sending on bad quote. */
+type InFlightSwap = {
+  intent: SwapIntent;
+  adapterId?: string;
+  quote?: Quote;
+  txHashes?: string[];
+  startedAt: number;
+};
+
+function saveInFlight(s: InFlightSwap): void {
+  try {
+    sessionStorage.setItem(SWAP_STORE_KEY, JSON.stringify(s));
+  } catch {
+    // private mode / storage denied — recovery just won't work; swap still runs
+  }
+}
+
+function loadInFlight(): InFlightSwap | null {
+  try {
+    const raw = sessionStorage.getItem(SWAP_STORE_KEY);
+    return raw ? (JSON.parse(raw) as InFlightSwap) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * quote → min-out check → sign + send. THE swap path.
+ *
+ * The {intent, txHashes} pair is persisted to sessionStorage the moment the
+ * tx leaves — when the wallet reloads the page mid-swap (sandbox/daemon
+ * wallets do), call kitSwapResult() on the fresh mount to recover.
+ * Throws before sending on bad quote.
+ */
 export async function kitSwap(cfg: KitJson, intent: SwapIntent, adapterId?: string): Promise<SwapResult> {
-  const signer = new NearConnectSigner({ network: cfg.network, agentWallet: cfg.agentWallet });
-  const kit = new DefiKit({ rpc: buildRpc(cfg), signer });
-  if (cfg.clmmPools) kit.register(new ClmmV5Adapter(kit.rpc, cfg.clmmPools));
+  saveInFlight({ intent, adapterId, startedAt: Date.now() });
+  const kit = makeKit(cfg);
   const { txHashes, quote } = await kit.swap(intent, adapterId);
-  // soft-fail law: pull `used:<kept>` out of each outcome — a "successful"
-  // tx can still have been rejected by the pool
-  const account = await signer.accountId();
+  saveInFlight({ intent, adapterId, quote, txHashes, startedAt: Date.now() });
+  return resolveSwap(cfg, { intent, adapterId, quote, txHashes, startedAt: Date.now() });
+}
+
+/**
+ * Recover an in-flight swap after the wallet's post-signature page reload.
+ * Resolves the persisted txHashes into used-values, CLEARS the store, and
+ * returns the SwapResult — or null when nothing is in flight. Call on
+ * mount (useVisibleTask$); staleness cutoff 10 minutes.
+ */
+export async function kitSwapResult(cfg: KitJson): Promise<SwapResult | null> {
+  const s = loadInFlight();
+  if (!s || !s.txHashes) return null;
+  if (Date.now() - s.startedAt > 10 * 60 * 1000) {
+    sessionStorage.removeItem(SWAP_STORE_KEY);
+    return null;
+  }
+  const result = await resolveSwap(cfg, s);
+  sessionStorage.removeItem(SWAP_STORE_KEY);
+  return result;
+}
+
+async function resolveSwap(cfg: KitJson, s: InFlightSwap): Promise<SwapResult> {
+  const kit = makeKit(cfg);
+  const account = await makeSigner(cfg).accountId();
   const used: Array<string | null> = [];
-  for (const h of txHashes) {
+  for (const h of s.txHashes ?? []) {
     const sv = account ? await kit.rpc.findSuccessValue(h, account) : null;
     used.push(sv ? (/^used:(\d+)$/.exec(sv.trim())?.[1] ?? null) : null);
   }
-  return { txHashes, quote, used };
+  return { txHashes: s.txHashes ?? [], quote: s.quote as Quote, used };
 }
 
 export { parseUsed };

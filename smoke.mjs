@@ -9,7 +9,7 @@ console.log("rpc:", rpc.endpoint);
 
 const adapter = new ClmmV5Adapter(rpc, {
   id: POOL7,
-  tokx: { addr: "tokn.clmm5-51fe5a.testnet", symbol: "TOKN", decimals: 24 },
+  tokx: { addr: "tokn.clmm5-51fe5a.testnet", symbol: "TOKN", decimals: 15 },
   toky: { addr: "wnear.clmm5-51fe5a.testnet", symbol: "wNEAR", decimals: 24 },
 });
 

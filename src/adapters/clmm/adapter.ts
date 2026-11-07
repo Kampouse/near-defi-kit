@@ -28,11 +28,46 @@ export class ClmmV5Adapter implements ProtocolAdapter {
   readonly id: string;
   readonly rpc: RpcClient;
   readonly cfgs: ClmmPoolCfg[];
+  /**
+   * Decimal law: config decimals are display hints, not truth. On the first
+   * quote/swap the adapter fetches each token's ft_metadata and THROWS on a
+   * mismatch — wrong decimals silently corrupt every human-facing number and
+   * min-out conversion (caught live: TOKN is 15 dec, config said 24).
+   */
+  private decimalsVerified: Promise<void> | null = null;
 
   constructor(rpc: RpcClient, cfgs: ClmmPoolCfg | ClmmPoolCfg[], adapterId = "clmm-v5") {
     this.id = adapterId;
     this.rpc = rpc;
     this.cfgs = Array.isArray(cfgs) ? cfgs : [cfgs];
+    this.decimalsVerified = this.verifyDecimals();
+  }
+
+  private async verifyDecimals(): Promise<void> {
+    const seen = new Set<string>();
+    for (const c of this.cfgs) {
+      for (const t of [c.tokx, c.toky]) {
+        if (seen.has(t.addr)) continue;
+        seen.add(t.addr);
+        let meta: { decimals?: number };
+        try {
+          meta = (await this.rpc.view(t.addr, "ft_metadata", {})) as { decimals?: number };
+        } catch (e) {
+          throw new Error(
+            `clmm-v5: ft_metadata failed for ${t.addr} (${String(e).slice(0, 80)}) — fix the address; decimals cannot be trusted blind`,
+          );
+        }
+        if (typeof meta.decimals !== "number" || meta.decimals !== t.decimals) {
+          throw new Error(
+            `clmm-v5: decimals mismatch for ${t.symbol} (${t.addr}): config says ${t.decimals}, contract says ${meta.decimals} — fix the config`,
+          );
+        }
+      }
+    }
+  }
+
+  private async ready(): Promise<void> {
+    await this.decimalsVerified;
   }
 
   cfgFor(from: string, to: string): ClmmPoolCfg | null {
@@ -70,6 +105,7 @@ export class ClmmV5Adapter implements ProtocolAdapter {
   }
 
   async getQuote(intent: SwapIntent): Promise<Quote | null> {
+    await this.ready();
     const cfg = this.cfgFor(intent.from, intent.to);
     if (!cfg) return null;
     const dir: "x" | "y" = cfg.tokx.addr === intent.from ? "x" : "y";
@@ -82,6 +118,7 @@ export class ClmmV5Adapter implements ProtocolAdapter {
   }
 
   async buildSwapTx(intent: SwapIntent, _quote: Quote): Promise<TxRequest[]> {
+    await this.ready();
     const cfg = this.cfgFor(intent.from, intent.to);
     if (!cfg) throw new Error(`no clmm pool for ${intent.from}/${intent.to}`);
     // min-out rides in the msg — the contract reverts EVERYTHING (escrow,

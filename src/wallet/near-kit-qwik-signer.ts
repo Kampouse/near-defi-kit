@@ -50,6 +50,21 @@ export class NearKitQwikSigner implements Signer {
     return getSession(this.cfg);
   }
 
+  /** Delegates to near-kit-qwik's connect — the wrapper owns the picker. */
+  async connect(): Promise<string | null> {
+    const { connect } = (await import(
+      /* @vite-ignore */ "near-kit-qwik"
+    )) as unknown as { connect: (cfg: unknown) => Promise<string> };
+    return connect(this.cfg);
+  }
+
+  async disconnect(): Promise<void> {
+    const { disconnect } = (await import(
+      /* @vite-ignore */ "near-kit-qwik"
+    )) as unknown as { disconnect: (cfg: unknown) => Promise<boolean> };
+    await disconnect(this.cfg);
+  }
+
   async sendTransaction(tx: TxRequest): Promise<TxOutcome> {
     const lib = await this.lib();
     if (tx.actions.length !== 1 || tx.actions[0].type !== "FunctionCall") {

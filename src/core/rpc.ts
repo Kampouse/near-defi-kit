@@ -104,6 +104,9 @@ export class RpcClient {
     const res = await fetch(this.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // RPC law: never let a receipt scan hang the swap path — bounded like
+      // every other network call (10 s; shards answer in well under 1 s).
+      signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: "s",
