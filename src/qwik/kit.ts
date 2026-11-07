@@ -90,9 +90,23 @@ export async function kitDisconnect(cfg: KitJson): Promise<void> {
 export type SwapResult = {
   txHashes: string[];
   quote: Quote;
-  /** `used:<kept>` values pulled from the receipt chains (null when absent) */
-  used: Array<string | null>;
+  /** per signed leg — narrow on `status`; "rejected" means the pool refunded everything */
+  legs: SwapLeg[];
 };
+
+/** Discriminated per-leg outcome. Replaces the old raw `used:<n>` strings. */
+export type SwapLeg =
+  | { status: "filled"; /** raw u128 the pool consumed */ used: string }
+  | { status: "rejected" }
+  | { status: "unknown" };
+
+function toLegs(used: Array<string | null>): SwapLeg[] {
+  return used.map(u => {
+    if (u === null) return { status: "unknown" as const };
+    if (u === "0") return { status: "rejected" as const };
+    return { status: "filled" as const, used: u };
+  });
+}
 
 type InFlightSwap = {
   intent: SwapIntent;
@@ -127,7 +141,12 @@ function loadInFlight(): InFlightSwap | null {
  * wallets do), call kitSwapResult() on the fresh mount to recover.
  * Throws before sending on bad quote.
  */
-export async function kitSwap(cfg: KitJson, intent: SwapIntent, adapterId?: string): Promise<SwapResult> {
+export async function kitSwap(
+  cfg: KitJson,
+  /** minOut is REQUIRED here — the compiler, not a convention, enforces the money-safety law */
+  intent: SwapIntent & { minOut: string },
+  adapterId?: string,
+): Promise<SwapResult> {
   saveInFlight({ intent, adapterId, startedAt: Date.now() });
   const kit = makeKit(cfg);
   const { txHashes, quote } = await kit.swap(intent, adapterId);
@@ -197,7 +216,7 @@ async function resolveSwap(cfg: KitJson, s: InFlightSwap): Promise<SwapResult> {
     const sv = account ? await kit.rpc.findSuccessValue(h, account) : null;
     used.push(sv ? (/^used:(\d+)$/.exec(sv.trim())?.[1] ?? null) : null);
   }
-  return { txHashes: s.txHashes ?? [], quote: s.quote as Quote, used };
+  return { txHashes: s.txHashes ?? [], quote: s.quote as Quote, legs: toLegs(used) };
 }
 
 export { parseUsed };

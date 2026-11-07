@@ -35,7 +35,7 @@ const useKit = () => useStore<KitJson>({
     tokx: { addr: "tokn.clmm5-51fe5a.testnet",  symbol: "TOKN",  decimals: 15 },
     toky: { addr: "wnear.clmm5-51fe5a.testnet", symbol: "wNEAR", decimals: 15 },
   }],
-});
+} satisfies KitJson);
 
 export const SwapCard = component$(() => {
   const cfg = useKit();
@@ -49,16 +49,17 @@ export const SwapCard = component$(() => {
 
   const quote = $((amount: string) =>
     kitQuote(cfg, { from: cfg.clmmPools![0].tokx.addr, to: cfg.clmmPools![0].toky.addr, amount })
-      .then(q => { out.value = q ? q.outAmount : null; }));
+      .then(q => { out.value = q ? q.out : null; }));
 
   const swap = $(async () => {
     status.value = "swapping…";
+    // minOut is required by the type — the compiler enforces the money-safety law
     const res = await kitSwap(cfg, {
       from: cfg.clmmPools![0].tokx.addr, to: cfg.clmmPools![0].toky.addr,
       amount: "5", minOut: out.value ?? "0",
     });
-    // soft-fail law: check `used`, never trust tx status alone
-    status.value = res.used.every(u => u && u !== "used:0")
+    // per-leg outcomes: "rejected" = pool refunded everything (soft-fail law)
+    status.value = res.legs.every(l => l.status === "filled")
       ? `done: ${res.txHashes.join(", ")}` : "leg rejected by pool (refunded)";
   });
 
@@ -132,7 +133,7 @@ const { rx, ry } = await kitPoolRequirements(cfg, pool.accountId, d, -8, 8);
 
 - **The on-chain `quote` verb is THE quote.** The byte-parity twin is advisory only; twin disagreement never blocks execution.
 - **min-out rides in the transaction msg** (`mo:<raw>`), enforced by the contract (full revert incl. fees on breach) — not by frontend checks.
-- **Soft-fail law:** NEP-141 legs answer `used:<kept>` as SuccessValue strings; a "successful" tx can still have been rejected by the pool. `kitSwap` parses this into `res.used` — check it, never trust status alone.
+- **Soft-fail law:** NEP-141 legs answer `used:<kept>` as SuccessValue strings; a "successful" tx can still have been rejected by the pool. `kitSwap` parses this into `res.legs` — a discriminated union (`"filled"` / `"rejected"` / `"unknown"`) — narrow on `status`, never trust tx status alone.
 - **Reload recovery:** if the browser reloads mid-swap (wallet redirects do this), `kitSwapResult()` on the fresh mount returns `{ status: "completed", … }` or `{ status: "submitted", intent }` — call it before assuming a swap is lost.
 - `parseInput` / `fmtRaw` are the only human↔raw money converters; `parseInput` returns `null` on anything ambiguous.
 - **15-decimal trap:** raw u128 is `tokens × 10^decimals`. When debugging raw strings, count digits before comparing — a factor of 1000 hides in plain sight.
