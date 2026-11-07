@@ -1,7 +1,7 @@
 {
   "name": "@jemartel01/near-defi-kit",
   "version": "0.1.0",
-  "description": "Generic, permissionless DeFi frontend kit for NEAR \u2014 RPC, tokens, wallet, and pluggable protocol adapters. No backend, no API keys.",
+  "description": "Generic, permissionless DeFi frontend kit for NEAR — RPC, tokens, wallet, and pluggable protocol adapters. No backend, no API keys.",
   "type": "module",
   "main": "./dist/core/index.js",
   "types": "./dist/core/index.d.ts",
@@ -46,10 +46,12 @@
   "scripts": {
     "build": "tsc --noEmit && tsup",
     "smoke": "node smoke.mjs",
+    "lint": "knip",
     "prepare": "npm run build"
   },
   "devDependencies": {
     "@fastnear/near-connect": "^0.14.1",
+    "knip": "^6.44.2",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0"
   },
