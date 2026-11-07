@@ -40,7 +40,8 @@ const txs = await adapter.buildSwapTx(
   q2,
 );
 const msgArg = txs[0].actions[0].params.args.msg;
-if (!msgArg.startsWith("mo:")) throw new Error("smoke: swap tx missing mo: min-out enforcement");
+const parsed = JSON.parse(msgArg);
+if (parsed.a !== "swap" || !("mo" in parsed)) throw new Error("smoke: swap tx missing {a:'swap',mo} min-out enforcement");
 console.log("swap tx →", txs[0].receiverId, "msg:", msgArg, "gas:", txs[0].actions[0].params.gas);
 
 // 4. custody check: escrow slices must equal pool token balances
