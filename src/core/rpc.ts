@@ -4,13 +4,15 @@
 // plain JSON-RPC. No API keys, no backend, no CORS tricks — a static site
 // can run the whole kit.
 
+import { b64ToUtf8 } from "./signer.js";
+
 export type RpcOptions = {
   endpoint: string;
   /** finality for view calls — "optimistic" = freshest, may flip under reorg */
   finality?: "optimistic" | "final" | "near-final";
 };
 
-export const DEFAULT_RPC: Record<string, string> = {
+export const DEFAULT_RPC: Record<"mainnet" | "testnet", string> = {
   mainnet: "https://rpc.mainnet.fastnear.com",
   testnet: "https://rpc.testnet.fastnear.com",
 };
@@ -145,7 +147,7 @@ export class RpcClient {
       const sv = r.outcome?.status?.SuccessValue;
       if (typeof sv === "string") {
         try {
-          return decodeURIComponent(escape(atob(sv)));
+          return b64ToUtf8(sv);
         } catch {
           // non-utf8 success value — skip
         }

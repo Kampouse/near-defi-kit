@@ -78,7 +78,7 @@ export function decodeResult(outcome: TxOutcome): string {
     );
   if (!sv) return "";
   try {
-    return decodeURIComponent(escape(atob(sv)));
+    return b64ToUtf8(sv);
   } catch {
     return "";
   }
@@ -92,7 +92,7 @@ export function scanReceipts(outcome: TxOutcome, re: RegExp): string | null {
   ].filter((v): v is string => typeof v === "string");
   for (const sv of candidates) {
     try {
-      const decoded = decodeURIComponent(escape(atob(sv)));
+      const decoded = b64ToUtf8(sv);
       const m = re.exec(decoded.trim());
       if (m) return m[1];
     } catch {
@@ -100,6 +100,11 @@ export function scanReceipts(outcome: TxOutcome, re: RegExp): string | null {
     }
   }
   return null;
+}
+
+/** base64 SuccessValue → utf8. TextDecoder, not the deprecated `escape`. */
+export function b64ToUtf8(b64: string): string {
+  return new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
 }
 
 /** Extract the `used:<kept>` value a ft_transfer_call resolve leg returns. */
