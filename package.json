@@ -33,6 +33,11 @@
     "./qwik/token": {
       "types": "./dist/qwik/token.d.ts",
       "import": "./dist/qwik/token.js"
+    },
+    "./qwik/pool": {
+      "types": "./dist/qwik/pool.d.ts",
+      "import": "./dist/qwik/pool.js",
+      "require": "./dist/qwik/pool.js"
     }
   },
   "files": [

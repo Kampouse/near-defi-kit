@@ -49,7 +49,7 @@ const INIT_GAS = "50000000000000";
 const MINT_GAS = "120000000000000";
 const CREATE_GAS = "80000000000000";
 
-async function ownerOf(cfg: KitJson): Promise<string> {
+export async function ownerOf(cfg: KitJson): Promise<string> {
   const owner = await makeSigner(cfg).accountId();
   if (!owner) throw new Error("token-create: wallet not connected — connect before creating a token");
   return owner;
