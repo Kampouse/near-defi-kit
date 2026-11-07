@@ -156,6 +156,8 @@ npm install && npm run build && npm run smoke
 
 The smoke test runs the read path against live testnet pools: real chain quote, escrow-custody sanity, wire-format parse, twin parity.
 
+Every snippet in this README is compile-verified against the built package — see `near-kit-qwik-test/src/readme-examples.tsx` (`npm run build.types` there).
+
 ## License
 
 MIT
