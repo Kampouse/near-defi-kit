@@ -137,11 +137,20 @@ export async function kitSwap(cfg: KitJson, intent: SwapIntent, adapterId?: stri
 
 /**
  * Recover an in-flight swap after the wallet's post-signature page reload.
- * Resolves the persisted txHashes into used-values, CLEARS the store, and
- * returns the SwapResult — or null when nothing is in flight. Call on
- * mount (useVisibleTask$); staleness cutoff 10 minutes.
+ * Three outcomes:
+ *   - full SwapResult (hashes survived the signer stash) → used parsed
+ *   - { status: "submitted", intent } → signed, hash unreachable (sandbox
+ *     wallets reload the page faster than the outcome lands; no indexer
+ *     dependency is acceptable here) — show "check the explorer"
+ *   - null → nothing in flight
+ * Clears the store on completion. Call on mount (useVisibleTask$);
+ * staleness cutoff 10 minutes.
  */
-export async function kitSwapResult(cfg: KitJson): Promise<SwapResult | null> {
+export type SwapRecovery =
+  | ({ status: "completed" } & SwapResult)
+  | { status: "submitted"; intent: SwapIntent };
+
+export async function kitSwapResult(cfg: KitJson): Promise<SwapRecovery | null> {
   const s = loadInFlight();
   // hashes may land in the signer's stash even when the reload killed the
   // swap promise before kit.swap() returned — merge both sources
@@ -157,16 +166,27 @@ export async function kitSwapResult(cfg: KitJson): Promise<SwapResult | null> {
   } catch {
     // ignore — fall back to in-flight record only
   }
-  if (!s || !hashes) return null;
-  if (Date.now() - s.startedAt > 10 * 60 * 1000) {
+  const clear = () => {
     sessionStorage.removeItem(SWAP_STORE_KEY);
     sessionStorage.removeItem("defi-kit:last-tx-hashes");
+  };
+  if (!s) return null;
+  // NOTE: a mid-swap reload (right after signing) leaves quote AND hashes
+  // unset — that is the normal "submitted" case, not garbage. Only
+  // staleness clears.
+  if (Date.now() - s.startedAt > 10 * 60 * 1000) {
+    clear();
     return null;
   }
+  if (!hashes) {
+    // signed but the hash never landed in-page — do NOT guess it
+    const intent = s.intent;
+    clear();
+    return { status: "submitted", intent };
+  }
   const result = await resolveSwap(cfg, { ...s, txHashes: hashes });
-  sessionStorage.removeItem(SWAP_STORE_KEY);
-  sessionStorage.removeItem("defi-kit:last-tx-hashes");
-  return result;
+  clear();
+  return { status: "completed", ...result };
 }
 
 async function resolveSwap(cfg: KitJson, s: InFlightSwap): Promise<SwapResult> {
