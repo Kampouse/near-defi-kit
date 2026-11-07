@@ -22,7 +22,7 @@ npm install react                    # hooks entry
 | `@jemartel01/near-defi-kit` / `/core` | `RpcClient`, `Signer`, tx builders, NEP-141 helpers, formatting, `DefiKit` + adapter contract |
 | `@jemartel01/near-defi-kit/adapters/clmm` | `ClmmV5Adapter` + byte-parity pool twin (CLMM v5 wire format) |
 | `@jemartel01/near-defi-kit/wallet` | `NearConnectSigner` (lazy `@fastnear/near-connect`, optional local agent-wallet daemon) |
-| `@jemartel01/near-defi-kit/react` | `createKit`, `KitProvider`, `useAccount`, `useAsync` |
+| `@jemartel01/near-defi-kit/qwik` | Qwik-safe wrappers: hoisted functions, JSON in/out (serializer-law safe) |
 
 ## Usage
 
@@ -48,14 +48,28 @@ const best = await kit.bestQuote({ from: tokn, to: wnear, amount, minOut });
 const { txHashes, quote } = await kit.swap({ from: tokn, to: wnear, amount, minOut });
 ```
 
-React:
+Qwik (see the serializer laws: only JSON survives Qwik's serialization boundary — class instances die silently):
 
-```tsx
-const ctx = createKit({ network: "testnet", clmmPools: [...] });
-<KitProvider ctx={ctx}><App /></KitProvider>
-// inside App:
-const { account, connect } = useAccount();
+```ts
+// component: keep ONLY JSON in signals/stores
+const cfg = useStore<KitJson>({ network: "testnet", clmmPools: [pool7] });
+const quote = useSignal<Quote | null>(null);
+
+// QRL: client born inside the handler, nothing captured but cfg
+const doQuote = $((amount: string) => {
+  quote.value = await kitQuote(cfg.value, { from: tokn, to: wnear, amount });
+});
+
+const doSwap = $(async () => {
+  const res = await kitSwap(cfg.value, { from: tokn, to: wnear, amount, minOut });
+  // res.used — `used:<kept>` per leg; null = leg rejected by the pool (soft-fail law)
+});
+
+// session restore on load (useVisibleTask$): accountId is the only wallet state you keep
+const account = useSignal<string | null>(await kitAccountId(cfg.value));
 ```
+
+React/other frameworks: use `core` + `wallet` directly — `new DefiKit({ rpc, signer })` in your own provider (`adapters/clmm` and `wallet` are framework-free).
 
 ## Money-safety law
 

@@ -22,9 +22,9 @@
       "types": "./dist/wallet/near-connect.d.ts",
       "import": "./dist/wallet/near-connect.js"
     },
-    "./react": {
-      "types": "./dist/react/hooks.d.ts",
-      "import": "./dist/react/hooks.js"
+    "./qwik": {
+      "types": "./dist/qwik/kit.d.ts",
+      "import": "./dist/qwik/kit.js"
     }
   },
   "files": [
@@ -36,20 +36,14 @@
   },
   "devDependencies": {
     "@fastnear/near-connect": "^0.14.1",
-    "@types/react": "^19.3.0",
-    "react": "^19.3.1",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0"
   },
   "peerDependencies": {
-    "@fastnear/near-connect": "*",
-    "react": ">=18"
+    "@fastnear/near-connect": "^0.14.1"
   },
   "peerDependenciesMeta": {
     "@fastnear/near-connect": {
-      "optional": true
-    },
-    "react": {
       "optional": true
     }
   },
