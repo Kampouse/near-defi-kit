@@ -1,0 +1,57 @@
+{
+  "name": "@jemartel01/near-defi-kit",
+  "version": "0.1.0",
+  "description": "Generic, permissionless DeFi frontend kit for NEAR — RPC, tokens, wallet, and pluggable protocol adapters. No backend, no API keys.",
+  "type": "module",
+  "main": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./adapters/clmm": {
+      "types": "./dist/adapters/clmm/index.d.ts",
+      "import": "./dist/adapters/clmm/index.js"
+    },
+    "./wallet": {
+      "types": "./dist/wallet/near-connect.d.ts",
+      "import": "./dist/wallet/near-connect.js"
+    },
+    "./react": {
+      "types": "./dist/react/hooks.d.ts",
+      "import": "./dist/react/hooks.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --noEmit && tsup",
+    "smoke": "node smoke.mjs"
+  },
+  "devDependencies": {
+    "@fastnear/near-connect": "^0.14.1",
+    "@types/react": "^19.3.0",
+    "react": "^19.3.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0"
+  },
+  "peerDependencies": {
+    "@fastnear/near-connect": "*",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@fastnear/near-connect": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "license": "MIT"
+}
