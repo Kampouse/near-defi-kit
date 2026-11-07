@@ -1,7 +1,7 @@
 {
   "name": "@jemartel01/near-defi-kit",
   "version": "0.1.0",
-  "description": "Generic, permissionless DeFi frontend kit for NEAR — RPC, tokens, wallet, and pluggable protocol adapters. No backend, no API keys.",
+  "description": "Generic, permissionless DeFi frontend kit for NEAR \u2014 RPC, tokens, wallet, and pluggable protocol adapters. No backend, no API keys.",
   "type": "module",
   "main": "./dist/core/index.js",
   "types": "./dist/core/index.d.ts",
@@ -25,6 +25,10 @@
     "./qwik": {
       "types": "./dist/qwik/kit.d.ts",
       "import": "./dist/qwik/kit.js"
+    },
+    "./wallet/near-kit-qwik": {
+      "types": "./dist/wallet/near-kit-qwik-signer.d.ts",
+      "import": "./dist/wallet/near-kit-qwik-signer.js"
     }
   },
   "files": [
@@ -40,10 +44,14 @@
     "typescript": "^5.5.0"
   },
   "peerDependencies": {
-    "@fastnear/near-connect": "^0.14.1"
+    "@fastnear/near-connect": "^0.14.1",
+    "near-kit-qwik": ">=0.3.1"
   },
   "peerDependenciesMeta": {
     "@fastnear/near-connect": {
+      "optional": true
+    },
+    "near-kit-qwik": {
       "optional": true
     }
   },

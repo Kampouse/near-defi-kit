@@ -6,6 +6,7 @@ export default defineConfig([
       "core/index": "src/core/index.ts",
       "adapters/clmm/index": "src/adapters/clmm/index.ts",
       "wallet/near-connect": "src/wallet/near-connect.ts",
+      "wallet/near-kit-qwik-signer": "src/wallet/near-kit-qwik-signer.ts",
       "qwik/kit": "src/qwik/kit.ts",
     },
     format: ["esm"],
@@ -13,6 +14,6 @@ export default defineConfig([
     sourcemap: true,
     clean: true,
     splitting: true,
-    external: ["@fastnear/near-connect"],
+    external: ["@fastnear/near-connect", "near-kit-qwik"],
   },
 ]);
