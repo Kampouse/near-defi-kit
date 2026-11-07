@@ -8,6 +8,7 @@ export default defineConfig([
       "wallet/near-connect": "src/wallet/near-connect.ts",
       "wallet/near-kit-qwik-signer": "src/wallet/near-kit-qwik-signer.ts",
       "qwik/kit": "src/qwik/kit.ts",
+      "qwik/token": "src/qwik/token.ts",
     },
     format: ["esm"],
     dts: true,

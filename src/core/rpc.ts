@@ -97,6 +97,28 @@ export class RpcClient {
   }
 
   /**
+   * Raw jsonrpc query passthrough — returns the full envelope so callers can
+   * distinguish RPC errors from "not found" responses (global-contract
+   * lookups signal absence via HANDLER_ERROR, not a clean null).
+   */
+  async query(requestType: string, params: Record<string, unknown>): Promise<{ ok: boolean; result?: Record<string, unknown>; error?: string }> {
+    const res = await fetch(this.endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "q",
+        method: "query",
+        params: { request_type: requestType, finality: this.finality, ...params },
+      }),
+    });
+    const j = await res.json();
+    if (j.error) return { ok: false, error: JSON.stringify(j.error) };
+    return { ok: true, result: j.result };
+  }
+
+  /**
    * Pull a SuccessValue string out of a tx's receipt chain.
    * Returns null when the tx failed or produced no string result.
    */

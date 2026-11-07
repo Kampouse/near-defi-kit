@@ -49,7 +49,7 @@ function buildRpc(cfg: KitJson): RpcClient {
   return cfg.rpcEndpoint ? new RpcClient(cfg.rpcEndpoint) : RpcClient.forNetwork(cfg.network);
 }
 
-function makeSigner(cfg: KitJson): NearConnectSigner | NearKitQwikSigner {
+export function makeSigner(cfg: KitJson): NearConnectSigner | NearKitQwikSigner {
   if (cfg.signer === "near-kit-qwik") {
     return new NearKitQwikSigner({ cfg: { network: cfg.network } });
   }

@@ -8,8 +8,38 @@ export type FunctionCallAction = {
   type: "FunctionCall";
   params: { methodName: string; args: object; gas: string; deposit: string };
 };
+export type CreateAccountAction = { type: "CreateAccount" };
+export type TransferAction = { type: "Transfer"; params: { deposit: string } };
+export type DeployContractAction = {
+  type: "DeployContract";
+  params: { code: Uint8Array; codeB64?: string };
+};
+export type DeployGlobalContractAction = {
+  type: "DeployGlobalContract";
+  params: { code: Uint8Array; codeB64?: string; deployMode: "CodeHash" | "AccountId" };
+};
+export type UseGlobalContractAction = {
+  type: "UseGlobalContract";
+  params: { contractIdentifier: { accountId: string } | { codeHash: string } };
+};
+export type AddKeyAction = {
+  type: "AddKey";
+  params: { publicKey: string; accessKey: { permission: "FullAccess" } };
+};
+export type DeleteKeyAction = {
+  type: "DeleteKey";
+  params: { publicKey: string };
+};
 
-export type Action = FunctionCallAction; // extend: CreateAccount, Stake, …
+export type Action =
+  | FunctionCallAction
+  | CreateAccountAction
+  | TransferAction
+  | DeployContractAction
+  | DeployGlobalContractAction
+  | UseGlobalContractAction
+  | AddKeyAction
+  | DeleteKeyAction;
 
 export type TxRequest = {
   receiverId: string;

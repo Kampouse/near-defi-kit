@@ -29,6 +29,10 @@
     "./wallet/near-kit-qwik": {
       "types": "./dist/wallet/near-kit-qwik-signer.d.ts",
       "import": "./dist/wallet/near-kit-qwik-signer.js"
+    },
+    "./qwik/token": {
+      "types": "./dist/qwik/token.d.ts",
+      "import": "./dist/qwik/token.js"
     }
   },
   "files": [
