@@ -36,7 +36,8 @@
   ],
   "scripts": {
     "build": "tsc --noEmit && tsup",
-    "smoke": "node smoke.mjs"
+    "smoke": "node smoke.mjs",
+    "prepare": "npm run build"
   },
   "devDependencies": {
     "@fastnear/near-connect": "^0.14.1",
