@@ -84,10 +84,11 @@ export class ClmmV5Adapter implements ProtocolAdapter {
   async buildSwapTx(intent: SwapIntent, _quote: Quote): Promise<TxRequest[]> {
     const cfg = this.cfgFor(intent.from, intent.to);
     if (!cfg) throw new Error(`no clmm pool for ${intent.from}/${intent.to}`);
-    // min-out rides in the msg ("mo:<raw>") — the contract reverts EVERYTHING
-    // (escrow, books, P/S, fee) when out < mo. That is the enforcement,
-    // not a frontend check.
-    const msg = intent.minOut ? `mo:${intent.minOut}` : "";
+    // min-out rides in the msg — the contract reverts EVERYTHING (escrow,
+    // books, P/S, fee) when out < mo. Contract msg format is JSON:
+    // {"a":"swap","mo":"<raw>"} — mo as string for u128 precision; the
+    // `mo:<raw>` wire form is receipts/parse law, not the tx msg.
+    const msg = JSON.stringify({ a: "swap", mo: intent.minOut ? intent.minOut : "0" });
     return [ftTransferCall(intent.from, cfg.id, intent.amount, msg)];
   }
 

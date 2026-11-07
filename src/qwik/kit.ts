@@ -13,6 +13,7 @@
 import { RpcClient } from "../core/rpc.js";
 import { DefiKit } from "../core/adapter.js";
 import type { Quote, SwapIntent } from "../core/adapter.js";
+export type { Quote, SwapIntent } from "../core/adapter.js";
 import { ClmmV5Adapter } from "../adapters/clmm/index.js";
 import type { ClmmPoolCfg } from "../adapters/clmm/index.js";
 import { NearConnectSigner } from "../wallet/near-connect.js";
