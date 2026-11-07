@@ -143,13 +143,29 @@ export async function kitSwap(cfg: KitJson, intent: SwapIntent, adapterId?: stri
  */
 export async function kitSwapResult(cfg: KitJson): Promise<SwapResult | null> {
   const s = loadInFlight();
-  if (!s || !s.txHashes) return null;
+  // hashes may land in the signer's stash even when the reload killed the
+  // swap promise before kit.swap() returned — merge both sources
+  let hashes = s?.txHashes;
+  try {
+    const raw = sessionStorage.getItem("defi-kit:last-tx-hashes");
+    if (raw) {
+      const { hashes: stashed, at } = JSON.parse(raw) as { hashes: string[]; at: number };
+      if (Date.now() - at < 10 * 60 * 1000 && stashed.length && (!hashes || !hashes.length)) {
+        hashes = stashed;
+      }
+    }
+  } catch {
+    // ignore — fall back to in-flight record only
+  }
+  if (!s || !hashes) return null;
   if (Date.now() - s.startedAt > 10 * 60 * 1000) {
     sessionStorage.removeItem(SWAP_STORE_KEY);
+    sessionStorage.removeItem("defi-kit:last-tx-hashes");
     return null;
   }
-  const result = await resolveSwap(cfg, s);
+  const result = await resolveSwap(cfg, { ...s, txHashes: hashes });
   sessionStorage.removeItem(SWAP_STORE_KEY);
+  sessionStorage.removeItem("defi-kit:last-tx-hashes");
   return result;
 }
 

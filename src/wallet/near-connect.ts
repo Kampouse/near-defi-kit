@@ -126,13 +126,34 @@ export class NearConnectSigner implements Signer {
 
   async sendTransaction(tx: TxRequest): Promise<TxOutcome> {
     const wallet = await this.wallet();
-    return wallet.signAndSendTransaction(tx);
+    const outcome = await wallet.signAndSendTransaction(tx);
+    this.stashHashes([outcome]);
+    return outcome;
   }
 
   async sendTransactions(txs: TxRequest[]): Promise<TxOutcome[]> {
     const wallet = await this.wallet();
-    if (txs.length === 1) return [await wallet.signAndSendTransaction(txs[0])];
-    return wallet.signAndSendTransactions({ transactions: txs });
+    const outcomes =
+      txs.length === 1
+        ? [await wallet.signAndSendTransaction(txs[0])]
+        : await wallet.signAndSendTransactions({ transactions: txs });
+    this.stashHashes(outcomes);
+    return outcomes;
+  }
+
+  /**
+   * Reload law: sandbox/daemon wallets reload the page after signing — the
+   * awaited swap promise dies mid-flight. Stash the tx hashes to sessionStorage
+   * the instant the outcome arrives so qwik/kit's kitSwapResult() can recover
+   * them on the fresh mount.
+   */
+  private stashHashes(outcomes: TxOutcome[]): void {
+    try {
+      const hashes = outcomes.map((o) => o.transaction_outcome?.id ?? "").filter(Boolean);
+      if (hashes.length) sessionStorage.setItem("defi-kit:last-tx-hashes", JSON.stringify({ hashes, at: Date.now() }));
+    } catch {
+      // storage denied — recovery just won't work; the swap itself is fine
+    }
   }
 }
 
