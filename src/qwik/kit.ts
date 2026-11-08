@@ -223,3 +223,6 @@ async function resolveSwap(cfg: KitJson, s: InFlightSwap): Promise<SwapResult> {
 }
 
 export { parseUsed };
+// decimal law: UIs convert human↔raw at the edge — re-exported here so /qwik
+// consumers never import from two entries
+export { parseInput, fmtRaw } from "../core/format.js";
