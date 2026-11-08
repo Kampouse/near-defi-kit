@@ -29,12 +29,15 @@ This is the **entire deployed app** (https://defi-swap.pages.dev) — copy it an
 import { component$, useSignal, useStore, $, useVisibleTask$ } from "@builder.io/qwik";
 import type { DocumentHead } from "@builder.io/qwik-city";
 // your wallet session — near-kit-qwik owns connect/disconnect, JSON functions only
-import { connect, getSession, disconnect, getBalance, view, call } from "near-kit-qwik";
+// (getBalance/view are intentionally NOT used: they return FORMATTED/JSON-parsed
+// values — "2.47" and floats over 2^53. Raw balances come from the kit's RpcClient.)
+import { connect, getSession, disconnect, call } from "near-kit-qwik";
 // the kit bridges to that same session via signer: "near-kit-qwik"
 import {
   kitQuote, kitSwap, kitSwapResult, parseInput, fmtRaw,
   type KitJson,
 } from "@jemartel01/near-defi-kit/qwik";
+import { RpcClient } from "@jemartel01/near-defi-kit/core";
 
 const CFG: KitJson = {
   network: "testnet",
@@ -88,17 +91,20 @@ export default component$(() => {
   const login = $(async () => { account.value = await connect({ network: "testnet" }); refreshBal(); });
   const logout = $(async () => { await disconnect({ network: "testnet" }); account.value = null; payBal.value = null; nearBal.value = null; });
 
-  // balances: pay-token ft_balance_of (native NEAR if paying NEAR) — JSON into signals
+  // balances via the kit's RpcClient — RAW bigint, not formatted strings
   const refreshBal = $(async () => {
     const acct = account.value;
     if (!acct) return;
     try {
-      const [tok, nat] = await Promise.all([
-        isNear(dir.x.addr) ? Promise.resolve(null) : view(NET, dir.x.addr, "ft_balance_of", { account_id: acct }),
-        getBalance(NET, acct),
-      ]);
-      payBal.value = isNear(dir.x.addr) ? nat : typeof tok === "string" ? tok : null;
-      nearBal.value = typeof nat === "string" ? nat : null;
+      const rpc = RpcClient.forNetwork("testnet");
+      const nat = await rpc.nativeBalance(acct);
+      nearBal.value = nat.toString();
+      if (isNear(dir.x.addr)) { payBal.value = nat.toString(); return; }
+      try {
+        payBal.value = (await rpc.ftBalanceOf(dir.x.addr, acct)).toString();
+      } catch {
+        payBal.value = "0"; // no storage registration on that token = holds zero
+      }
     } catch { payBal.value = null; nearBal.value = null; }
   });
 
