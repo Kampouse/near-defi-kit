@@ -69,9 +69,10 @@ const poolAddrOf = (addr: string) => (isNear(addr) ? WN : addr);
 /**
  * FunctionCall with EXPLICIT gas via batch's Op (lisp contracts burn far more
  * than near-kit's 30 Tgas call() default — near_deposit writes storage).
+ * batch() requires accountId in the cfg — connect first, pass it through.
  */
 const callVia = (
-  cfg: { network: "mainnet" | "testnet" },
+  cfg: { network: "mainnet" | "testnet"; accountId: string },
   contract: string,
   method: string,
   args: object,
@@ -156,14 +157,14 @@ export default component$(() => {
     minOutRaw.value = null; feeRaw.value = null; route.value = ""; rate.value = ""; display.value = "—";
   });
   const togglePay = $(() => {
-    if (isNear(dir.y.addr)) return; // keep one NEAR-variant per side
+    if (dir.y.symbol !== "FART") return; // other side must be FART — NEAR→wNEAR stays unrepresentable
     dir.x = isNear(dir.x.addr) ? POOL.toky : NEAR_TOK;
     resetQuote();
     if (amount.value) quote(amount.value);
     refreshBal();
   });
   const toggleGet = $(() => {
-    if (isNear(dir.x.addr)) return;
+    if (dir.x.symbol !== "FART") return;
     dir.y = isNear(dir.y.addr) ? POOL.toky : NEAR_TOK;
     resetQuote();
     if (amount.value) quote(amount.value);
@@ -182,10 +183,10 @@ export default component$(() => {
       }
       status.value = "wrapping NEAR → wNEAR…";
       try {
-        // near-kit call() has no gas opt (30 Tgas default kills lisp contracts) — batch Op takes gas
-        await callVia(NET, WN, "near_deposit", {}, `${raw} yocto`);
-      } catch {
-        status.value = "wrap rejected — swap cancelled";
+        // near-kit call() has no gas opt (30 Tgas default) — batch Op takes gas
+        await callVia({ ...NET, accountId: account.value }, WN, "near_deposit", {}, `${raw} yocto`);
+      } catch (e) {
+        status.value = `wrap failed: ${(e as Error)?.message ?? String(e)}`;
         return;
       }
       poolIn = raw / YOCTO_PER_WNEAR_RAW; // 24-dec yocto → 15-dec wNEAR raw
@@ -198,21 +199,28 @@ export default component$(() => {
       }
       status.value = "wrapping NEAR → wNEAR…";
       try {
-        await callVia(NET, WN, "near_deposit", {}, `${needYocto} yocto`);
-      } catch {
-        status.value = "wrap rejected — swap cancelled";
+        await callVia({ ...NET, accountId: account.value }, WN, "near_deposit", {}, `${needYocto} yocto`);
+      } catch (e) {
+        status.value = `wrap failed: ${(e as Error)?.message ?? String(e)}`;
         return;
       }
       payBal.value = (BigInt(payBal.value) + (needYocto / YOCTO_PER_WNEAR_RAW)).toString();
     }
 
     status.value = "check your wallet…";
-    const res = await kitSwap(CFG, {
-      from: poolAddrOf(dir.x.addr),
-      to: poolAddrOf(dir.y.addr),
-      amount: poolIn.toString(),   // RAW u128, pool domain
-      minOut: minOutRaw.value,     // RAW, from the chain quote — contract-enforced
-    });
+    let res;
+    try {
+      res = await kitSwap(CFG, {
+        from: poolAddrOf(dir.x.addr),
+        to: poolAddrOf(dir.y.addr),
+        amount: poolIn.toString(),   // RAW u128, pool domain
+        minOut: minOutRaw.value,     // RAW, from the chain quote — contract-enforced
+      });
+    } catch (e) {
+      status.value = `swap failed: ${(e as Error)?.message ?? String(e)}`;
+      refreshBal();
+      return;
+    }
     const filled = res.legs.filter((l) => l.status === "filled");
     if (filled.length === 0) { status.value = "pool refunded (min-out moved) — try again"; refreshBal(); return; }
 
@@ -223,12 +231,12 @@ export default component$(() => {
       if (wnearOut > 0n) {
         status.value = "unwrapping wNEAR → NEAR…";
         try {
-          await callVia(NET, WN, "near_withdraw", { amount: wnearOut.toString() }, undefined);
+          await callVia({ ...NET, accountId: account.value }, WN, "near_withdraw", { amount: wnearOut.toString() }, undefined);
           status.value = `filled + unwrapped ✓  ${res.txHashes[0]?.slice(0, 16)}…`;
           refreshBal();
           return;
-        } catch {
-          status.value = `swap filled ✓ — unwrap failed (${fmtRaw(wnearOut, 15)} wNEAR stays wrapped)`;
+        } catch (e) {
+          status.value = `swap filled ✓ — unwrap failed (${fmtRaw(wnearOut, 15)} wNEAR stays wrapped): ${(e as Error)?.message ?? String(e)}`;
           refreshBal();
           return;
         }
@@ -253,7 +261,7 @@ export default component$(() => {
           <div class="row">
             <input inputMode="decimal" placeholder="0.0" value={amount.value}
               onInput$={(_, el) => quote(el.value)} />
-            <button class="tok" onClick$={togglePay} title="Toggle NEAR ⇄ wNEAR"><span class={isNear(dir.x.addr) ? "icon n" : "icon x"}>{isNear(dir.x.addr) ? "Ⓝ" : "₣"}</span>{dir.x.symbol}<span class="chev">▾</span></button>
+            <button class={`tok ${dir.y.symbol !== "FART" ? "off" : ""}`} onClick$={togglePay} title="Toggle NEAR ⇄ wNEAR"><span class={isNear(dir.x.addr) ? "icon n" : "icon x"}>{isNear(dir.x.addr) ? "Ⓝ" : "₣"}</span>{dir.x.symbol}<span class="chev">▾</span></button>
           </div>
           <div class="sub">
             <span>{dir.x.symbol}</span>
@@ -272,7 +280,7 @@ export default component$(() => {
           <label>You receive</label>
           <div class="row">
             <div class={`out ${display.value === "—" ? "empty" : ""}`}>{display.value}</div>
-            <button class="tok" onClick$={toggleGet} title="Toggle NEAR ⇄ wNEAR"><span class={isNear(dir.y.addr) ? "icon n" : "icon y"}>{isNear(dir.y.addr) ? "Ⓝ" : "◈"}</span>{dir.y.symbol}<span class="chev">▾</span></button>
+            <button class={`tok ${dir.x.symbol !== "FART" ? "off" : ""}`} onClick$={toggleGet} title="Toggle NEAR ⇄ wNEAR"><span class={isNear(dir.y.addr) ? "icon n" : "icon y"}>{isNear(dir.y.addr) ? "Ⓝ" : "◈"}</span>{dir.y.symbol}<span class="chev">▾</span></button>
           </div>
           <div class="sub"><span>{rate.value ? `1 ${dir.x.symbol} ≈ ${rate.value} ${dir.y.symbol}` : ""}</span><span /></div>
         </div>
