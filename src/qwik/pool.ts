@@ -97,7 +97,7 @@ export async function kitCreatePool(cfg: KitJson, spec: PoolSpec): Promise<PoolC
   }
   const owner = await ownerOf(cfg);
   const accountId = `${name}.${owner}`;
-  const signer = makeSigner(cfg);
+  const signer = await makeSigner(cfg);
   const mode = await poolCodeMode(cfg);
 
   // birth tx — create + attach code + fund storage (faucet pattern, one tx)

@@ -23,8 +23,8 @@ import type { Quote, SwapIntent } from "../core/adapter.js";
 export type { Quote, SwapIntent } from "../core/adapter.js";
 import { ClmmV5Adapter } from "../adapters/clmm/index.js";
 import type { ClmmPoolCfg } from "../adapters/clmm/index.js";
-import { NearConnectSigner } from "../wallet/near-connect.js";
-import { NearKitQwikSigner } from "../wallet/near-kit-qwik-signer.js";
+import type { NearConnectSigner } from "../wallet/near-connect.js";
+import type { NearKitQwikSigner } from "../wallet/near-kit-qwik-signer.js";
 import { parseUsed } from "../core/signer.js";
 
 /** Everything the kit needs, as plain JSON — the only thing you keep in signals/stores. */
@@ -49,25 +49,31 @@ function buildRpc(cfg: KitJson): RpcClient {
   return cfg.rpcEndpoint ? new RpcClient(cfg.rpcEndpoint) : RpcClient.forNetwork(cfg.network);
 }
 
-export function makeSigner(cfg: KitJson): NearConnectSigner | NearKitQwikSigner {
+export type KitSigner = NearConnectSigner | NearKitQwikSigner;
+
+/** Lazy: wallet modules (and their peer libs) load only when a signing path runs. */
+export async function makeSigner(cfg: KitJson): Promise<KitSigner> {
   if (cfg.signer === "near-kit-qwik") {
+    const { NearKitQwikSigner } = await import("../wallet/near-kit-qwik-signer.js");
     return new NearKitQwikSigner({ cfg: { network: cfg.network } });
   }
+  const { NearConnectSigner } = await import("../wallet/near-connect.js");
   return new NearConnectSigner({
     network: cfg.network,
     ...(cfg.agentWallet !== undefined ? { agentWallet: cfg.agentWallet } : {}),
   });
 }
 
-function makeKit(cfg: KitJson): DefiKit {
+function makeKit(cfg: KitJson, signer?: KitSigner): DefiKit {
   const rpc = buildRpc(cfg);
-  const kit = new DefiKit({ rpc, signer: makeSigner(cfg) });
+  const kit = new DefiKit({ rpc, ...(signer !== undefined ? { signer } : {}) });
   if (cfg.clmmPools) kit.register(new ClmmV5Adapter(rpc, cfg.clmmPools));
   return kit;
 }
 
 /** Best quote across the config's adapters. Null = no route. */
 export async function kitQuote(cfg: KitJson, intent: SwapIntent): Promise<Quote | null> {
+  // signer-free: quotes are pure RPC reads — no wallet module ever loads
   const kit = makeKit(cfg);
   const best = await kit.bestQuote(intent);
   return best ? best.quote : null;
@@ -75,18 +81,18 @@ export async function kitQuote(cfg: KitJson, intent: SwapIntent): Promise<Quote 
 
 /** Connect the wallet (opens the picker). Returns the accountId — store THAT, not the wallet. */
 export async function kitConnect(cfg: KitJson): Promise<string | null> {
-  const signer = makeSigner(cfg);
+  const signer = await makeSigner(cfg);
   return signer.connect();
 }
 
 /** Restore accountId from a live session (call in useVisibleTask$ on load). */
 export async function kitAccountId(cfg: KitJson): Promise<string | null> {
-  const signer = makeSigner(cfg);
+  const signer = await makeSigner(cfg);
   return signer.accountId();
 }
 
 export async function kitDisconnect(cfg: KitJson): Promise<void> {
-  const signer = makeSigner(cfg);
+  const signer = await makeSigner(cfg);
   await signer.disconnect();
 }
 
@@ -151,7 +157,7 @@ export async function kitSwap(
   adapterId?: string,
 ): Promise<SwapResult> {
   saveInFlight({ intent, adapterId, startedAt: Date.now() });
-  const kit = makeKit(cfg);
+  const kit = makeKit(cfg, await makeSigner(cfg));
   const { txHashes, quote } = await kit.swap(intent, adapterId);
   saveInFlight({ intent, adapterId, quote, txHashes, startedAt: Date.now() });
   return resolveSwap(cfg, { intent, adapterId, quote, txHashes, startedAt: Date.now() });
@@ -213,7 +219,7 @@ export async function kitSwapResult(cfg: KitJson): Promise<SwapRecovery | null> 
 
 async function resolveSwap(cfg: KitJson, s: InFlightSwap): Promise<SwapResult> {
   const kit = makeKit(cfg);
-  const account = await makeSigner(cfg).accountId();
+  const account = await (await makeSigner(cfg)).accountId();
   const used: Array<string | null> = [];
   for (const h of s.txHashes ?? []) {
     const sv = account ? await kit.rpc.findSuccessValue(h, account) : null;

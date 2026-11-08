@@ -50,7 +50,7 @@ const MINT_GAS = "120000000000000";
 const CREATE_GAS = "80000000000000";
 
 export async function ownerOf(cfg: KitJson): Promise<string> {
-  const owner = await makeSigner(cfg).accountId();
+  const owner = await (await makeSigner(cfg)).accountId();
   if (!owner) throw new Error("token-create: wallet not connected — connect before creating a token");
   return owner;
 }
@@ -101,7 +101,7 @@ export async function kitEnsureTokenCode(cfg: KitJson): Promise<string | null> {
 export async function kitPublishTokenCode(cfg: KitJson): Promise<string> {
   const bytes = ft2WasmBytes();
   const hash = await sha256Base58(bytes);
-  const signer = makeSigner(cfg);
+  const signer = await makeSigner(cfg);
   const owner = await ownerOf(cfg);
   await signer.sendTransactions([
     {
@@ -129,7 +129,7 @@ export async function kitCreateToken(cfg: KitJson, spec: TokenSpec): Promise<Tok
   if (!spec.symbol || spec.symbol.length > 10) throw new Error("token-create: symbol 1-10 chars");
   const owner = await ownerOf(cfg);
   const accountId = `${name}.${owner}`;
-  const signer = makeSigner(cfg);
+  const signer = await makeSigner(cfg);
   const bytes = ft2WasmBytes();
   const globalHash = await kitEnsureTokenCode(cfg);
   const mode: CodeMode = globalHash ? { mode: "global", hash: globalHash } : { mode: "inline" };

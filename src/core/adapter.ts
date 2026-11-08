@@ -53,7 +53,8 @@ export interface ProtocolAdapter {
 
 export type KitConfig = {
   rpc: RpcClient;
-  signer: Signer;
+  /** optional — read paths (quote/balances) run signer-free; swap requires one */
+  signer?: Signer;
 };
 
 /** The kit: inject rpc + signer, register adapters, go. */
@@ -64,7 +65,7 @@ export class DefiKit {
 
   constructor(cfg: KitConfig) {
     this.rpc = cfg.rpc;
-    this.signer = cfg.signer;
+    this.signer = cfg.signer as Signer;
   }
 
   register(adapter: ProtocolAdapter): this {
@@ -99,6 +100,7 @@ export class DefiKit {
       throw new Error(`quote below min-out: ${quote.out} < ${intent.minOut}`);
     }
     const txs = await adapter.buildSwapTx(intent, quote);
+    if (!this.signer) throw new Error("swap requires a signer — DefiKit configured signer-free");
     const outcomes = await this.signer.sendTransactions(txs);
     return { txHashes: outcomes.map((o) => o.transaction_outcome.id), quote };
   }
