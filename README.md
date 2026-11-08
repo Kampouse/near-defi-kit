@@ -26,7 +26,7 @@ npm install @jemartel01/near-defi-kit near-kit-qwik
 This is the **entire deployed app** (https://defi-swap.pages.dev) — copy it and change the pool. Your app owns the wallet session through near-kit-qwik (hoisted JSON functions, no classes anywhere); the kit bridges to it via `signer: "near-kit-qwik"`. Human↔raw conversion happens at the edge with `parseInput`/`fmtRaw`.
 
 ```tsx
-import { component$, useSignal, $, useVisibleTask$ } from "@builder.io/qwik";
+import { component$, useSignal, useStore, $, useVisibleTask$ } from "@builder.io/qwik";
 import type { DocumentHead } from "@builder.io/qwik-city";
 // your wallet session — near-kit-qwik owns connect/disconnect, JSON functions only
 import { connect, getSession, disconnect } from "near-kit-qwik";
@@ -56,7 +56,11 @@ export default component$(() => {
   const amount = useSignal("");
   const display = useSignal("—");
   const minOutRaw = useSignal<string | null>(null); // RAW chain quote (display above is truncated)
+  const feeRaw = useSignal<string | null>(null);
+  const route = useSignal("");
+  const rate = useSignal("");
   const status = useSignal("—");
+  const dir = useStore({ x: POOL.tokx, y: POOL.toky }); // direction — JSON only
 
   // mount: restore session + recover a swap interrupted by a reload
   // eslint-disable-next-line qwik/no-use-visible-task
@@ -70,22 +74,36 @@ export default component$(() => {
   const logout = $(async () => { await disconnect({ network: "testnet" }); account.value = null; });
 
   // typing quotes live off the chain. RAW below this line, humans above.
+  // QRLs are invoked as (event, element) — no extra params, read dir inside.
   const quote = $(async (input: string) => {
+    const from = dir.x.addr, to = dir.y.addr;
     amount.value = input;
-    const raw = parseInput(input, decOf(POOL.tokx.addr));
-    if (raw === null || raw <= 0n) { display.value = "—"; minOutRaw.value = null; return; }
-    const q = await kitQuote(CFG, { from: POOL.tokx.addr, to: POOL.toky.addr, amount: raw.toString() });
+    const fromDec = decOf(from), toDec = decOf(to);
+    const raw = parseInput(input, fromDec);
+    if (raw === null || raw <= 0n) { display.value = "—"; minOutRaw.value = null; feeRaw.value = null; route.value = ""; rate.value = ""; return; }
+    const q = await kitQuote(CFG, { from, to, amount: raw.toString() });
     minOutRaw.value = q ? q.out : null;
-    display.value = q ? fmtRaw(BigInt(q.out), decOf(POOL.toky.addr)) : "no route";
+    feeRaw.value = q?.fee ?? null;
+    route.value = q ? q.route : "";
+    display.value = q ? fmtRaw(BigInt(q.out), toDec) : "no route";
+    // 1 X ≈ rate Y (scaled 1e6 integer division)
+    rate.value = q ? fmtRaw((BigInt(q.out) * 1000000n) / raw, 6) : "";
+  });
+
+  const flip = $(() => {
+    const x = dir.x, y = dir.y;
+    dir.x = y; dir.y = x;
+    minOutRaw.value = null; feeRaw.value = null; route.value = ""; rate.value = ""; display.value = "—";
+    if (amount.value) quote(amount.value);
   });
 
   const swap = $(async () => {
-    const raw = parseInput(amount.value, decOf(POOL.tokx.addr));
+    const raw = parseInput(amount.value, decOf(dir.x.addr));
     if (raw === null || raw <= 0n || !minOutRaw.value || !account.value) return;
     status.value = "check your wallet…";
     const res = await kitSwap(CFG, {
-      from: POOL.tokx.addr,
-      to: POOL.toky.addr,
+      from: dir.x.addr,
+      to: dir.y.addr,
       amount: raw.toString(),      // RAW u128
       minOut: minOutRaw.value,     // RAW, from the chain quote — contract-enforced
     });
@@ -97,28 +115,51 @@ export default component$(() => {
   return (
     <div class="page">
       <header>
-        <h1>⚡ defi-swap</h1>
+        <h1><span class="logo">⚡</span> defi-swap</h1>
         {account.value
-          ? <button class="pill" onClick$={logout}>{account.value.slice(0, 12)}… · exit</button>
-          : <button class="pill" onClick$={login}>Connect wallet</button>}
+          ? <button class="pill" onClick$={logout}><span class="dot" />{account.value.slice(0, 12)}…</button>
+          : <button class="pill off" onClick$={login}><span class="dot" style={{ background: "#57627a" }} />Connect wallet</button>}
       </header>
       <main class="card">
-        <label>You pay</label>
-        <div class="row">
-          <input inputMode="decimal" placeholder="0.0" value={amount.value}
-            onInput$={(_, el) => quote(el.value)} />
-          <span class="tok static">{POOL.tokx.symbol}</span>
+        {/* PAY */}
+        <div class="panel">
+          <label>You pay</label>
+          <div class="row">
+            <input inputMode="decimal" placeholder="0.0" value={amount.value}
+              onInput$={(_, el) => quote(el.value)} />
+            <span class="tok"><span class="icon x">₣</span>{dir.x.symbol}<span class="chev">▾</span></span>
+          </div>
+          <div class="sub"><span>{dir.x.symbol}</span><span>Balance: —</span></div>
         </div>
-        <label>You get (live on-chain quote)</label>
-        <div class="row">
-          <div class="out">{display.value}</div>
-          <span class="tok static">{POOL.toky.symbol}</span>
+
+        {/* flip disc */}
+        <div class="flipwrap">
+          <button class="flip" title="Flip direction" onClick$={flip}>↓</button>
         </div>
+
+        {/* RECEIVE */}
+        <div class="panel">
+          <label>You receive</label>
+          <div class="row">
+            <div class={`out ${display.value === "—" ? "empty" : ""}`}>{display.value}</div>
+            <span class="tok"><span class="icon y">◈</span>{dir.y.symbol}<span class="chev">▾</span></span>
+          </div>
+          <div class="sub"><span>{rate.value ? `1 ${dir.x.symbol} ≈ ${rate.value} ${dir.y.symbol}` : ""}</span><span /></div>
+        </div>
+
         <button class="go" disabled={!account.value || !minOutRaw.value} onClick$={swap}>
-          {!account.value ? "Connect to swap" : !minOutRaw.value ? "Enter an amount" : `Swap ${POOL.tokx.symbol} → ${POOL.toky.symbol}`}
+          {!account.value ? "Connect Wallet" : !minOutRaw.value ? "Enter an amount" : `Swap ${dir.x.symbol} → ${dir.y.symbol}`}
         </button>
+
+        {(minOutRaw.value || route.value) ? (
+          <div class="details">
+            <div class="kv"><span>Min. received</span><b>{minOutRaw.value ? fmtRaw(BigInt(minOutRaw.value), decOf(dir.y.addr)) + " " + dir.y.symbol : "—"}</b></div>
+            <div class="kv"><span>Network fee</span><b>{feeRaw.value ? fmtRaw(BigInt(feeRaw.value), decOf(dir.y.addr)) + " " + dir.y.symbol : "—"}</b></div>
+            <div class="kv"><span>Route</span><b>{route.value || "—"}</b></div>
+          </div>
+        ) : <div class="details" />}
         <p class="status">{status.value}</p>
-        <p class="fine">min-out = live quote, enforced on-chain. Rejected legs refund automatically.</p>
+        <p class="fine">Slippage is on-chain (min-out from the live quote). Rejected legs refund automatically.</p>
       </main>
     </div>
   );
