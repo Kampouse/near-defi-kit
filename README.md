@@ -170,7 +170,8 @@ export default component$(() => {
       }
       status.value = "wrapping NEAR → wNEAR…";
       try {
-        await call(NET, WN, "near_deposit", {}, { attachedDeposit: `${raw} yocto` });
+        // Lisp contracts burn far more than near-kit's 30 Tgas default
+        await call(NET, WN, "near_deposit", {}, { attachedDeposit: `${raw} yocto`, gas: "300 Tgas" });
       } catch {
         status.value = "wrap rejected — swap cancelled";
         return;
@@ -185,7 +186,7 @@ export default component$(() => {
       }
       status.value = "wrapping NEAR → wNEAR…";
       try {
-        await call(NET, WN, "near_deposit", {}, { attachedDeposit: `${needYocto} yocto` });
+        await call(NET, WN, "near_deposit", {}, { attachedDeposit: `${needYocto} yocto`, gas: "300 Tgas" });
       } catch {
         status.value = "wrap rejected — swap cancelled";
         return;
@@ -210,7 +211,7 @@ export default component$(() => {
       if (wnearOut > 0n) {
         status.value = "unwrapping wNEAR → NEAR…";
         try {
-          await call(NET, WN, "near_withdraw", { amount: wnearOut.toString() });
+          await call(NET, WN, "near_withdraw", { amount: wnearOut.toString() }, { gas: "300 Tgas" });
           status.value = `filled + unwrapped ✓  ${res.txHashes[0]?.slice(0, 16)}…`;
           refreshBal();
           return;
