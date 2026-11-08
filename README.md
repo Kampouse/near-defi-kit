@@ -31,7 +31,7 @@ import type { DocumentHead } from "@builder.io/qwik-city";
 // your wallet session — near-kit-qwik owns connect/disconnect, JSON functions only
 // (getBalance/view are intentionally NOT used: they return FORMATTED/JSON-parsed
 // values — "2.47" and floats over 2^53. Raw balances come from the kit's RpcClient.)
-import { connect, getSession, disconnect, call } from "near-kit-qwik";
+import { connect, getSession, disconnect, batch } from "near-kit-qwik";
 // the kit bridges to that same session via signer: "near-kit-qwik"
 import {
   kitQuote, kitSwap, kitSwapResult, parseInput, fmtRaw,
@@ -65,6 +65,18 @@ const decOf = (addr: string) =>
   isNear(addr) ? NEAR_DEC : CFG.clmmPools!.find((p) => p.tokx.addr === addr)?.tokx.decimals ?? 15;
 /** the kit never sees "NEAR" — native NEAR enters/leaves the swap as wNEAR */
 const poolAddrOf = (addr: string) => (isNear(addr) ? WN : addr);
+
+/**
+ * FunctionCall with EXPLICIT gas via batch's Op (lisp contracts burn far more
+ * than near-kit's 30 Tgas call() default — near_deposit writes storage).
+ */
+const callVia = (
+  cfg: { network: "mainnet" | "testnet" },
+  contract: string,
+  method: string,
+  args: object,
+  deposit: `${bigint} yocto` | undefined,
+): Promise<unknown> => batch(cfg, [{ kind: "call", contract, method, args, deposit, gas: "300 Tgas" }]);
 
 export default component$(() => {
   const account = useSignal<string | null>(null);
@@ -170,8 +182,8 @@ export default component$(() => {
       }
       status.value = "wrapping NEAR → wNEAR…";
       try {
-        // Lisp contracts burn far more than near-kit's 30 Tgas default
-        await call(NET, WN, "near_deposit", {}, { attachedDeposit: `${raw} yocto`, gas: "300 Tgas" });
+        // near-kit call() has no gas opt (30 Tgas default kills lisp contracts) — batch Op takes gas
+        await callVia(NET, WN, "near_deposit", {}, `${raw} yocto`);
       } catch {
         status.value = "wrap rejected — swap cancelled";
         return;
@@ -186,7 +198,7 @@ export default component$(() => {
       }
       status.value = "wrapping NEAR → wNEAR…";
       try {
-        await call(NET, WN, "near_deposit", {}, { attachedDeposit: `${needYocto} yocto`, gas: "300 Tgas" });
+        await callVia(NET, WN, "near_deposit", {}, `${needYocto} yocto`);
       } catch {
         status.value = "wrap rejected — swap cancelled";
         return;
@@ -211,7 +223,7 @@ export default component$(() => {
       if (wnearOut > 0n) {
         status.value = "unwrapping wNEAR → NEAR…";
         try {
-          await call(NET, WN, "near_withdraw", { amount: wnearOut.toString() }, { gas: "300 Tgas" });
+          await callVia(NET, WN, "near_withdraw", { amount: wnearOut.toString() }, undefined);
           status.value = `filled + unwrapped ✓  ${res.txHashes[0]?.slice(0, 16)}…`;
           refreshBal();
           return;
