@@ -5,10 +5,10 @@ Generic, permissionless DeFi frontend kit for NEAR. Quote → swap → create to
 ## Install
 
 ```bash
-npm install @jemartel01/near-defi-kit
-# peer dep for wallet signing (pick ONE):
-npm install @fastnear/near-connect   # default wallet layer
-npm install near-kit-qwik            # if your app already uses near-kit
+npm install @jemartel01/near-defi-kit near-kit-qwik
+# near-kit-qwik brings its own peers (near-kit, @hot-labs/near-connect).
+# Prefer the near-connect wallet instead? swap in @fastnear/near-connect
+# and drop signer: "near-kit-qwik" from the config.
 ```
 
 | Import | Contents |
@@ -21,64 +21,124 @@ npm install near-kit-qwik            # if your app already uses near-kit
 | `/qwik/token` | `kitCreateToken`, `kitPublishTokenCode` — token factory |
 | `/qwik/pool` | `kitCreatePool`, `kitPoolRequirements` — pool factory |
 
-## Quickstart: swaps in Qwik (~20 lines)
+## Quickstart: swaps in Qwik
+
+This is the **entire deployed app** (https://defi-swap.pages.dev) — copy it and change the pool. Your app owns the wallet session through near-kit-qwik (hoisted JSON functions, no classes anywhere); the kit bridges to it via `signer: "near-kit-qwik"`. Human↔raw conversion happens at the edge with `parseInput`/`fmtRaw`.
 
 ```tsx
-import { component$, useSignal, useStore, $ } from "@builder.io/qwik";
-import { kitQuote, kitSwap, kitAccountId, type KitJson } from "@jemartel01/near-defi-kit/qwik";
+import { component$, useSignal, $, useVisibleTask$ } from "@builder.io/qwik";
+import type { DocumentHead } from "@builder.io/qwik-city";
+// your wallet session — near-kit-qwik owns connect/disconnect, JSON functions only
+import { connect, getSession, disconnect } from "near-kit-qwik";
+// the kit bridges to that same session via signer: "near-kit-qwik"
+import {
+  kitQuote, kitSwap, kitSwapResult, parseInput, fmtRaw,
+  type KitJson,
+} from "@jemartel01/near-defi-kit/qwik";
 
-// ONLY JSON lives in signals/stores — Qwik's serializer kills class instances.
-const useKit = () => useStore<KitJson>({
+const CFG: KitJson = {
   network: "testnet",
+  signer: "near-kit-qwik", // bridge: the kit reuses your near-kit-qwik session
   clmmPools: [{
-    id: "pool7.clmm5-51fe5a.testnet",
-    tokx: { addr: "tokn.clmm5-51fe5a.testnet",  symbol: "TOKN",  decimals: 15 },
+    id: "fartpool.e.clmm5-51fe5a.testnet",
+    tokx: { addr: "fartcoin.e.clmm5-51fe5a.testnet", symbol: "FART", decimals: 15 },
     toky: { addr: "wnear.clmm5-51fe5a.testnet", symbol: "wNEAR", decimals: 15 },
   }],
-} satisfies KitJson);
+};
 
-export const SwapCard = component$(() => {
-  const cfg = useKit();
+// helpers a QRL references live at MODULE scope — never inside component$
+const POOL = CFG.clmmPools![0];
+const decOf = (addr: string) =>
+  CFG.clmmPools!.find((p) => p.tokx.addr === addr)?.tokx.decimals ?? 15;
+
+export default component$(() => {
   const account = useSignal<string | null>(null);
-  const out = useSignal<string | null>(null);
-  const status = useSignal("");
+  const amount = useSignal("");
+  const display = useSignal("—");
+  const minOutRaw = useSignal<string | null>(null); // RAW chain quote (display above is truncated)
+  const status = useSignal("—");
 
-  // wallet state on reload: accountId is all you persist
+  // mount: restore session + recover a swap interrupted by a reload
   // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(async () => { account.value = await kitAccountId(cfg); });
+  useVisibleTask$(async () => {
+    account.value = await getSession({ network: "testnet" });
+    const rec = await kitSwapResult(CFG);
+    if (rec) status.value = rec.status === "completed" ? "last swap filled ✓" : "submitted — check explorer";
+  });
 
-  const quote = $((amount: string) =>
-    kitQuote(cfg, { from: cfg.clmmPools![0].tokx.addr, to: cfg.clmmPools![0].toky.addr, amount })
-      .then(q => { out.value = q ? q.out : null; }));
+  const login = $(async () => { account.value = await connect({ network: "testnet" }); });
+  const logout = $(async () => { await disconnect({ network: "testnet" }); account.value = null; });
+
+  // typing quotes live off the chain. RAW below this line, humans above.
+  const quote = $(async (input: string) => {
+    amount.value = input;
+    const raw = parseInput(input, decOf(POOL.tokx.addr));
+    if (raw === null || raw <= 0n) { display.value = "—"; minOutRaw.value = null; return; }
+    const q = await kitQuote(CFG, { from: POOL.tokx.addr, to: POOL.toky.addr, amount: raw.toString() });
+    minOutRaw.value = q ? q.out : null;
+    display.value = q ? fmtRaw(BigInt(q.out), decOf(POOL.toky.addr)) : "no route";
+  });
 
   const swap = $(async () => {
-    status.value = "swapping…";
-    // minOut is required by the type — the compiler enforces the money-safety law
-    const res = await kitSwap(cfg, {
-      from: cfg.clmmPools![0].tokx.addr, to: cfg.clmmPools![0].toky.addr,
-      amount: "5", minOut: out.value ?? "0",
+    const raw = parseInput(amount.value, decOf(POOL.tokx.addr));
+    if (raw === null || raw <= 0n || !minOutRaw.value || !account.value) return;
+    status.value = "check your wallet…";
+    const res = await kitSwap(CFG, {
+      from: POOL.tokx.addr,
+      to: POOL.toky.addr,
+      amount: raw.toString(),      // RAW u128
+      minOut: minOutRaw.value,     // RAW, from the chain quote — contract-enforced
     });
-    // per-leg outcomes: "rejected" = pool refunded everything (soft-fail law)
-    status.value = res.legs.every(l => l.status === "filled")
-      ? `done: ${res.txHashes.join(", ")}` : "leg rejected by pool (refunded)";
+    status.value = res.legs.every((l) => l.status === "filled")
+      ? `filled ✓  ${res.txHashes[0]?.slice(0, 16)}…`
+      : "pool refunded (min-out moved) — try again";
   });
 
   return (
-    <div>
-      <input
-        placeholder="0.0"
-        onInput$={(_, el) => quote(el.value)}
-      />
-      <button onClick$={swap} disabled={!out.value}>
-        {out.value ? `get ~${out.value} wNEAR` : "type an amount"}
-      </button>
-      <p>{status.value}</p>
+    <div class="page">
+      <header>
+        <h1>⚡ defi-swap</h1>
+        {account.value
+          ? <button class="pill" onClick$={logout}>{account.value.slice(0, 12)}… · exit</button>
+          : <button class="pill" onClick$={login}>Connect wallet</button>}
+      </header>
+      <main class="card">
+        <label>You pay</label>
+        <div class="row">
+          <input inputMode="decimal" placeholder="0.0" value={amount.value}
+            onInput$={(_, el) => quote(el.value)} />
+          <span class="tok static">{POOL.tokx.symbol}</span>
+        </div>
+        <label>You get (live on-chain quote)</label>
+        <div class="row">
+          <div class="out">{display.value}</div>
+          <span class="tok static">{POOL.toky.symbol}</span>
+        </div>
+        <button class="go" disabled={!account.value || !minOutRaw.value} onClick$={swap}>
+          {!account.value ? "Connect to swap" : !minOutRaw.value ? "Enter an amount" : `Swap ${POOL.tokx.symbol} → ${POOL.toky.symbol}`}
+        </button>
+        <p class="status">{status.value}</p>
+        <p class="fine">min-out = live quote, enforced on-chain. Rejected legs refund automatically.</p>
+      </main>
     </div>
   );
 });
+
+export const head: DocumentHead = {
+  title: "defi-swap",
+  meta: [{ name: "description", content: "NEAR swap front on @jemartel01/near-defi-kit + near-kit-qwik" }],
+};
 ```
 
-The input feeds `quote()`; the button only enables once a quote exists (so `minOut` is never empty); `swap()` re-quotes nothing — it reuses the last quoted output as the on-chain floor.
+**`kitSwap` intent, field by field:**
+
+| field | units | meaning |
+|---|---|---|
+| `from` / `to` | address | token addresses; picks the pool from `cfg.clmmPools` |
+| `amount` | **raw u128 string** | what you send (`tokens × 10^decimals` — 15-dec: `"5"` human = `"5000000000000000"` raw) |
+| `minOut` | **raw u128 string** | required; enforced by the contract (`mo` in the msg) — take it from `kitQuote`'s `q.out`, never from a formatted display string |
+
+**Why the kit builds its own signer from JSON instead of taking yours:** in Qwik, a signer class instance cannot survive the serialization boundary — only JSON does. So `/qwik` handlers construct the signer inside, from `cfg`. If your app already owns a wallet session, set `signer: "near-kit-qwik"` in the config and the kit bridges to it instead of opening its own connector. The **vanilla path is plain DI**: `new DefiKit({ rpc, signer })` — pass whatever signer you hold.
 
 That's the whole integration: config JSON + two hoisted functions. `kitQuote`/`kitSwap` build the signer internally, register the CLMM adapter from `clmmPools`, enforce min-out on-chain, and parse the receipt chains for you.
 
