@@ -77,7 +77,7 @@ const callVia = (
   method: string,
   args: object,
   deposit: `${bigint} yocto` | undefined,
-): Promise<unknown> => batch(cfg, [{ kind: "call", contract, method, args, deposit, gas: "300 Tgas" }]);
+): Promise<unknown> => batch(cfg, [{ kind: "call", contract, method, args, deposit, gas: "60 Tgas" }]);
 
 export default component$(() => {
   const account = useSignal<string | null>(null);
