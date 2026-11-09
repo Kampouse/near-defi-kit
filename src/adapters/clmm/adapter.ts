@@ -15,7 +15,7 @@ import type { ProtocolAdapter, Quote, SwapIntent, TxRequest } from "../../core/a
 import { ftTransferCall } from "../../core/tokens.js";
 
 export const SWAP_GAS = "300000000000000";
-export const ONE_YOCTO = "1";
+export const ONE_YOCTO = "1 yocto"; // unit-suffixed: near-kit's Amount parser rejects bare "1" as ambiguous
 
 export type ClmmPoolCfg = {
   id: string;
