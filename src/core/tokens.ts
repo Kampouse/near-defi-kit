@@ -11,7 +11,7 @@ export type TokenMetadata = {
 };
 
 export const SWAP_GAS = "300000000000000"; // ft_transfer_call leg: ≥285 Tgas measured
-export const ONE_YOCTO = "1";
+export const ONE_YOCTO = "1 yocto"; // near-kit Amount parser rejects bare "1" (Ambiguous)
 
 /**
  * NEP-141 metadata with a defensive default: contracts that skip `spec`

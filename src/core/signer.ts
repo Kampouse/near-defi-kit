@@ -64,7 +64,7 @@ export function fnCall(
   methodName: string,
   args: object,
   gas: string,
-  deposit: string = "1",
+  deposit: string = "1 yocto", // unit-suffixed — bare "1" throws Ambiguous in near-kit
 ): FunctionCallAction {
   return { type: "FunctionCall", params: { methodName, args, gas, deposit } };
 }
