@@ -222,7 +222,7 @@ async function resolveSwap(cfg: KitJson, s: InFlightSwap): Promise<SwapResult> {
   const account = await (await makeSigner(cfg)).accountId();
   const used: Array<string | null> = [];
   for (const h of s.txHashes ?? []) {
-    const sv = account ? await kit.rpc.findSuccessValue(h, account) : null;
+    const sv = account ? await kit.rpc.findSuccessValue(h, account, /^used:(\d+)$/) : null;
     used.push(sv ? (/^used:(\d+)$/.exec(sv.trim())?.[1] ?? null) : null);
   }
   return { txHashes: s.txHashes ?? [], quote: s.quote as Quote, legs: toLegs(used) };

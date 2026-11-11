@@ -121,10 +121,12 @@ export class RpcClient {
   }
 
   /**
-   * Pull a SuccessValue string out of a tx's receipt chain.
-   * Returns null when the tx failed or produced no string result.
+   * Pull a SuccessValue string out of a tx's receipt chain. A swap leg's
+   * chain carries MULTIPLE string receipts (payout "ok", pool "0", resolve
+   * "used:<kept>") — matching by pattern, not by position, is the only
+   * order-stable read. Returns null when nothing matches/decodes.
    */
-  async findSuccessValue(txHash: string, accountId: string): Promise<string | null> {
+  async findSuccessValue(txHash: string, accountId: string, re?: RegExp): Promise<string | null> {
     const res = await fetch(this.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -147,7 +149,12 @@ export class RpcClient {
       const sv = r.outcome?.status?.SuccessValue;
       if (typeof sv === "string") {
         try {
-          return b64ToUtf8(sv);
+          const decoded = b64ToUtf8(sv);
+          // pattern match across the WHOLE chain — first-decodable wins is
+          // order-fragile (a payout receipt's "ok" can precede the resolve's
+          // "used:<kept>" and shadow it)
+          if (re && !re.test(decoded.trim())) continue;
+          return decoded;
         } catch {
           // non-utf8 success value — skip
         }
